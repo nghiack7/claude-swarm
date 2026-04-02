@@ -1,0 +1,32 @@
+{
+  "name": "claude-swarm",
+  "version": "1.0.0",
+  "description": "Local-first multi-agent coordination for Claude Code. Rooms, tasks, broadcast, shared memory.",
+  "type": "module",
+  "bin": {
+    "claude-swarm": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "broker": "tsx src/broker.ts",
+    "server": "tsx src/server.ts",
+    "cli": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["claude", "mcp", "multi-agent", "swarm", "coordination", "ai"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "better-sqlite3": "^11.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
