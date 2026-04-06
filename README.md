@@ -1,218 +1,242 @@
 # Claude Swarm
 
-> Local-first multi-agent coordination for Claude Code. Zero cloud, zero API keys.
+> Multi-CLI agent orchestration. One command, multiple AI models, coordinated work.
 
-**Claude Swarm** lets multiple Claude Code instances on your machine discover each other, form rooms, delegate tasks, share memory, and communicate in real-time — all through a lightweight local broker.
+**Claude Swarm** orchestrates Claude Code, Codex CLI, and Gemini CLI from a single terminal. Spawn a swarm of agents with different roles and models, monitor them in real-time, and collect results — all locally.
 
 ```
-┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Claude A │     │ Claude B │     │ Claude C │
-│ frontend │     │ backend  │     │ reviewer │
-└────┬─────┘     └────┬─────┘     └────┬─────┘
-     │   MCP (stdio)  │                │
-     └────────┬───────┘────────────────┘
-              │
-        ┌─────▼──────┐
-        │   Broker    │  localhost:7899
-        │   SQLite    │  ~/.claude-swarm.db
-        └────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  🐝 CLAUDE SWARM — "Build a REST API"                       │
+│  Mode: pipeline | Agents: 1/3 done | Elapsed: 45s           │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ██████████████ DONE  planner (claude/sonnet-4-6)           │
+│    Completed in 32s | 2.1KB output                           │
+│                                                              │
+│  ██████░░░░░░░░ RUN   implementer (codex/o4-mini)           │
+│    18s elapsed | 1.4KB output | 23 lines                     │
+│    > Writing Express routes for /todos endpoints...          │
+│                                                              │
+│  ░░░░░░░░░░░░░░ WAIT  reviewer (gemini/pro)                │
+│    Waiting...                                                │
+│                                                              │
+├─────────────────────────────────────────────────────────────┤
+│  Latest output (implementer):                                │
+│  > Created src/routes/todos.ts with CRUD endpoints           │
+│  > Added input validation with zod schemas                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Why?
 
-You're running 3 Claude Code sessions — one on frontend, one on backend, one reviewing. They can't talk to each other. You copy-paste context between terminals. **Claude Swarm fixes this.**
+Every AI coding tool runs in its own silo. Claude Code doesn't talk to Codex. Codex doesn't talk to Gemini. You copy-paste between terminals.
 
-## Features
+Claude Swarm is the **layer above the agents**. It coordinates them:
 
-| Feature | Description |
-|---------|-------------|
-| **Peer Discovery** | Auto-discover Claude instances by machine, directory, repo, or room |
-| **Rooms** | Group agents working on the same task. Broadcast, share context |
-| **Tasks** | Delegate work to peers. Create → assign → track → complete |
-| **Scratchpad** | Shared key-value memory per room. Store decisions and findings |
-| **Broadcast** | One message to all room members |
-| **Status** | Set idle/busy/waiting/reviewing so peers know your availability |
-| **Message History** | Search past messages across rooms |
-| **Beautiful CLI** | Color-coded dashboard with peer status, rooms, tasks |
-| **Zero Config** | No API keys, no cloud, no accounts. Just install and go |
-| **Node.js + Bun** | Works with both runtimes |
+- **Claude** plans the architecture (best at reasoning)
+- **Codex** writes the code (best at implementation)
+- **Gemini** reviews the result (independent perspective)
+
+One command. Multiple models. Coordinated output.
 
 ## Install
 
 ```bash
-# Clone
-git clone https://github.com/personal/claude-swarm.git
+git clone https://github.com/nghiack7/claude-swarm.git
 cd claude-swarm
 npm install
-
-# Register as MCP server (one-time)
-claude mcp add --scope user --transport stdio claude-swarm -- npx tsx $(pwd)/src/server.ts
 ```
 
 ## Quick Start
 
-### 1. Open multiple Claude Code sessions
+### Run a swarm (default pipeline: planner → implementer → reviewer)
 
 ```bash
-# Terminal 1
-cd my-project && claude
-
-# Terminal 2
-cd my-project && claude
-
-# Terminal 3 (reviewer)
-cd my-project && claude
+npx tsx src/cli.ts run "Build a todo REST API with Express and TypeScript"
 ```
 
-### 2. Each Claude instance auto-discovers peers
-
-```
-> list_peers scope="repo"
-
-[
-  { "id": "peer_abc", "name": "my-project", "status": "idle" },
-  { "id": "peer_def", "name": "my-project", "status": "busy" }
-]
-```
-
-### 3. Create a room and collaborate
-
-```
-> create_room name="sprint-1"
-> set_name name="frontend-agent"
-> set_status status="busy"
-
-> create_task room_id="room_xyz" title="Fix auth bug" assigned_to="peer_def"
-> broadcast message="Auth module is broken, I'm investigating the JWT hook"
-> scratchpad_set room_id="room_xyz" key="root-cause" value="JWT hook missing SECURITY DEFINER"
-```
-
-### 4. Monitor from CLI
+### Custom agents with specific CLIs and models
 
 ```bash
-npx tsx src/cli.ts status
+npx tsx src/cli.ts run "Fix the auth bug in src/auth.ts" \
+  --agent "analyst:claude:claude-sonnet-4-6" \
+  --agent "fixer:codex:o4-mini" \
+  --agent "reviewer:claude:claude-haiku-4-5-20251001"
 ```
 
-```
- ⚡ CLAUDE SWARM
-────────────────────────────────────────────────────────────
-  ● Broker: running on port 7899
-  Peers: 3  |  Rooms: 1
-────────────────────────────────────────────────────────────
-
-  frontend-agent  BUSY  [room_xyz123]
-  ID: peer_abc123456
-  CWD: /Users/dev/my-project
-  Investigating auth module JWT hook issue
-  Last seen: 2s ago
-
-  backend-agent  IDLE  [room_xyz123]
-  ID: peer_def789012
-  CWD: /Users/dev/my-project
-  Waiting for task assignment
-  Last seen: 5s ago
-
-  reviewer  REVIEW  [room_xyz123]
-  ID: peer_ghi345678
-  CWD: /Users/dev/my-project
-  Reviewing PR #42
-  Last seen: 1s ago
-```
-
-## MCP Tools (22 tools)
-
-### Core
-| Tool | Description |
-|------|-------------|
-| `list_peers` | Discover peers (scope: machine/directory/repo/room) |
-| `send_message` | Direct message to a peer |
-| `broadcast` | Message all peers in your room |
-| `check_messages` | Poll for new messages |
-| `message_history` | Search/browse past messages |
-| `set_summary` | Update your work description |
-| `set_name` | Set a friendly name |
-| `set_status` | Set availability (idle/busy/waiting/reviewing) |
-
-### Rooms
-| Tool | Description |
-|------|-------------|
-| `create_room` | Create a collaboration room (auto-join) |
-| `join_room` | Join an existing room |
-| `leave_room` | Leave your current room |
-| `list_rooms` | List all rooms |
-
-### Tasks
-| Tool | Description |
-|------|-------------|
-| `create_task` | Create a task in a room (optionally assign) |
-| `update_task` | Update status/result/assignee |
-| `list_tasks` | List tasks in a room |
-
-### Scratchpad (Shared Memory)
-| Tool | Description |
-|------|-------------|
-| `scratchpad_get` | Read a value |
-| `scratchpad_set` | Write a key-value pair |
-| `scratchpad_list` | List all entries |
-
-## CLI Commands
+### Parallel mode (all agents run simultaneously)
 
 ```bash
-npx tsx src/cli.ts status          # Dashboard overview
-npx tsx src/cli.ts peers           # List peers
-npx tsx src/cli.ts rooms           # List rooms
-npx tsx src/cli.ts send <id> <msg> # Send direct message
-npx tsx src/cli.ts broadcast <room> <msg>  # Broadcast
-npx tsx src/cli.ts history --room <id> --search <term>
-npx tsx src/cli.ts tasks <room_id> # List tasks
-npx tsx src/cli.ts scratchpad <room_id>    # Shared memory
-npx tsx src/cli.ts kill            # Kill broker
-npx tsx src/cli.ts help            # Help
+npx tsx src/cli.ts run "Review this codebase for security issues" \
+  --agent "security:claude" \
+  --agent "deps:codex" \
+  --agent "secrets:gemini" \
+  --mode parallel
 ```
+
+### Check available adapters
+
+```bash
+npx tsx src/cli.ts adapters
+```
+
+```
+CLI Adapters
+
+  claude ● available (default model: claude-sonnet-4-6)
+  codex  ● available (default model: o4-mini)
+  gemini ✕ not found (default model: gemini-2.5-pro)
+```
+
+## Agent Spec Format
+
+```
+role:cli:model    Full spec      e.g. planner:claude:claude-sonnet-4-6
+role:cli          Default model  e.g. coder:codex
+role              Default CLI    e.g. reviewer (uses claude)
+```
+
+## Execution Modes
+
+### Pipeline (default)
+
+Agents run sequentially. Each agent receives the output of all previous agents as context.
+
+```
+planner ──→ implementer ──→ reviewer
+  output ─────→ output ───────→ output
+```
+
+Best for: feature building, bug fixing, any task where later steps depend on earlier ones.
+
+### Parallel
+
+All agents run simultaneously with the same task description. No shared context between agents.
+
+```
+┌─ security-reviewer
+├─ performance-auditor    (all run at once)
+└─ code-quality-checker
+```
+
+Best for: independent reviews, multi-perspective analysis, parallelizable work.
 
 ## Architecture
 
 ```
-Claude Code ←── stdio ──→ MCP Server (1 per session)
-                              │
-                              │ HTTP (localhost:7899)
-                              ▼
-                         Broker Daemon
-                              │
-                              ▼
-                     SQLite (~/.claude-swarm.db)
-                     ├── peers (discovery + status)
-                     ├── rooms (collaboration groups)
-                     ├── messages (queue + history)
-                     ├── tasks (delegation + tracking)
-                     └── scratchpad (shared memory)
+User
+ │
+ ▼
+CLI (claude-swarm run)
+ │
+ ├──→ Orchestrator
+ │     ├── Adapter: Claude Code (claude -p "...")
+ │     ├── Adapter: Codex CLI   (codex exec "...")
+ │     └── Adapter: Gemini CLI  (gemini -p "...")
+ │
+ ├──→ TUI Dashboard (live terminal monitoring)
+ │
+ └──→ Broker (localhost:7899 + SQLite)
+       ├── peers (discovery + status)
+       ├── rooms (collaboration groups)
+       ├── messages (queue + history)
+       ├── tasks (delegation + tracking)
+       └── scratchpad (shared memory)
 ```
 
-**Key design decisions:**
-- **Local-only**: All traffic on 127.0.0.1. No network exposure.
-- **Zero dependencies on external APIs**: No OpenAI, no cloud. Pure local.
-- **SQLite + WAL**: Fast, concurrent, crash-safe.
-- **Process verification**: Broker checks if peers are alive via `kill(pid, 0)`.
-- **Auto-cleanup**: Stale peers removed every 30s.
-- **1s polling + channel push**: Messages delivered within 1 second.
+**Two layers:**
 
-## vs claude-peers-mcp (original)
+1. **Orchestrator** — spawns CLI processes, constructs role-specific prompts, manages lifecycle, collects output. This is the new part.
+2. **Broker** — the existing peer coordination system. MCP-connected Claude Code sessions can still discover each other, form rooms, and collaborate in real-time.
 
-| Feature | claude-peers-mcp | Claude Swarm |
-|---------|-----------------|--------------|
-| Peer discovery | ✓ | ✓ |
-| Direct messages | ✓ | ✓ |
-| Rooms | ✕ | ✓ |
-| Broadcast | ✕ | ✓ |
-| Task delegation | ✕ | ✓ |
-| Shared scratchpad | ✕ | ✓ |
-| Peer status | ✕ | ✓ (idle/busy/waiting/reviewing) |
-| Message history | ✕ | ✓ (with search) |
-| Peer naming | ✕ | ✓ |
-| CLI dashboard | Basic | Color-coded with status badges |
-| External API dependency | OpenAI (for summaries) | None |
-| Runtime | Bun only | Node.js + Bun |
-| Tools count | 4 | 22 |
+## Peer Coordination (MCP)
+
+The orchestrator is one way to use Claude Swarm. You can also use it as an MCP server for real-time peer coordination between manually-opened sessions.
+
+### Register as MCP server
+
+```bash
+claude mcp add --scope user --transport stdio claude-swarm -- npx tsx $(pwd)/src/server.ts
+```
+
+### 22 MCP Tools
+
+| Category | Tools |
+|----------|-------|
+| **Core** | `list_peers`, `send_message`, `broadcast`, `check_messages`, `message_history`, `set_summary`, `set_name`, `set_status` |
+| **Rooms** | `create_room`, `join_room`, `leave_room`, `list_rooms` |
+| **Tasks** | `create_task`, `update_task`, `list_tasks` |
+| **Scratchpad** | `scratchpad_get`, `scratchpad_set`, `scratchpad_list` |
+
+## CLI Commands
+
+```bash
+# Orchestration
+claude-swarm run <task>          # Run a multi-agent swarm
+claude-swarm adapters            # List available CLI adapters
+
+# Coordination
+claude-swarm status              # Dashboard overview
+claude-swarm peers               # List peers
+claude-swarm rooms               # List rooms
+claude-swarm send <id> <msg>     # Send direct message
+claude-swarm broadcast <room> <msg>  # Broadcast to room
+claude-swarm history [--room <id>] [--search <term>]
+claude-swarm tasks <room_id>     # List tasks
+claude-swarm scratchpad <room_id>    # Shared memory
+claude-swarm kill                # Kill broker
+claude-swarm help                # Help
+```
+
+## How It Works
+
+1. You run `claude-swarm run "your task"` with agent specs
+2. The orchestrator constructs a role-specific prompt for each agent
+3. In **pipeline** mode, each agent's output becomes context for the next
+4. In **parallel** mode, all agents run simultaneously
+5. The TUI shows live progress: status, output size, latest lines
+6. When complete, a summary shows each agent's output and timing
+
+Each agent runs as a real CLI subprocess (`claude -p`, `codex exec`, `gemini -p`) with full tool access. They can edit files, run tests, and interact with your codebase.
+
+## Default Pipeline
+
+When no `--agent` flags are specified, Claude Swarm uses a 3-agent pipeline:
+
+| Step | Role | CLI | Purpose |
+|------|------|-----|---------|
+| 1 | **Planner** | Claude | Architecture and implementation plan |
+| 2 | **Implementer** | Claude | Write the code following the plan |
+| 3 | **Reviewer** | Claude | Review for bugs, edge cases, improvements |
+
+Customize by passing `--agent` flags. Mix and match CLIs freely.
+
+## Key Design Decisions
+
+- **Multi-CLI**: Not locked to one AI provider. Claude, Codex, Gemini, and any future CLI that accepts a prompt and returns output.
+- **Local-only**: All traffic on 127.0.0.1. No cloud coordination, no API keys for swarm features.
+- **Protocol-agnostic**: The broker speaks HTTP + SQLite. Any process can participate.
+- **Zero config**: No YAML files needed. Agent specs are CLI flags. Defaults work out of the box.
+- **Adapter pattern**: Adding a new CLI is ~20 lines. Implement `available()` and `spawn()`.
+
+## Adding a New CLI Adapter
+
+Edit `src/adapters.ts`:
+
+```typescript
+const myAdapter: CLIAdapter = {
+  name: "mycli",
+  defaultModel: "my-model",
+  available: () => commandExists("mycli"),
+  spawn: ({ prompt, model, cwd }) => {
+    return spawn("mycli", ["run", prompt, "--model", model], {
+      cwd, stdio: ["ignore", "pipe", "pipe"],
+    });
+  },
+};
+```
+
+Then add it to the `adapters` registry. That's it.
 
 ## Environment
 
@@ -221,6 +245,20 @@ Claude Code ←── stdio ──→ MCP Server (1 per session)
 | `CLAUDE_SWARM_PORT` | `7899` | Broker port |
 | `CLAUDE_SWARM_DB` | `~/.claude-swarm.db` | SQLite path |
 
+## vs Other Tools
+
+| Feature | Claude Swarm | Agent Teams | AMUX | Conductor |
+|---------|-------------|-------------|------|-----------|
+| Multi-CLI (Claude+Codex+Gemini) | ✓ | ✕ (Claude only) | ✕ | ✕ |
+| One-command orchestration | ✓ | ✓ | ✕ | ✓ |
+| Live TUI dashboard | ✓ | ✕ | Web UI | ✕ |
+| Per-role model selection | ✓ | ✕ | ✕ | ✕ |
+| Pipeline + parallel modes | ✓ | Parallel only | Parallel only | Parallel only |
+| MCP peer coordination | ✓ | ✕ | ✕ | ✕ |
+| Shared scratchpad memory | ✓ | Shared tasks | ✕ | ✕ |
+| Zero cloud dependency | ✓ | ✓ | ✓ | ✕ |
+| Adapter pattern (extensible) | ✓ | ✕ | ✕ | ✕ |
+
 ## License
 
-MIT — Fork of [claude-peers-mcp](https://github.com/louislva/claude-peers-mcp) by louislva.
+MIT

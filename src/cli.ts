@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * Claude Swarm CLI — inspect and manage the swarm from terminal.
+ * Claude Swarm CLI — inspect, manage, and orchestrate the swarm.
  *
  * Usage:
+ *   claude-swarm run <task>      Orchestrate a multi-agent swarm run
  *   claude-swarm status          Show broker health + all peers
  *   claude-swarm peers           List peers with status
  *   claude-swarm rooms           List rooms
+ *   claude-swarm adapters        List available CLI adapters
  *   claude-swarm send <id> <msg> Send message to peer
  *   claude-swarm broadcast <room> <msg> Broadcast to room
  *   claude-swarm history [--room <id>] [--search <term>]
@@ -14,6 +16,9 @@
  *   claude-swarm kill            Kill broker daemon
  */
 import { execSync } from "node:child_process";
+import { parseAgentSpec, executeRun, DEFAULT_PIPELINE, type AgentSpec, type RunMode } from "./orchestrator.js";
+import { listAdapters } from "./adapters.js";
+import { TUI, printSummary } from "./tui.js";
 
 const PORT = parseInt(process.env["CLAUDE_SWARM_PORT"] ?? "7899", 10);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -204,6 +209,53 @@ async function cmdScratchpad(roomId: string): Promise<void> {
   console.log();
 }
 
+/* ─── Swarm Run ─── */
+
+async function cmdRun(taskParts: string[], agentSpecs: string[], mode: RunMode, noTui: boolean): Promise<void> {
+  const task = taskParts.join(" ");
+  if (!task) {
+    console.error(`${COLORS.red}✕${COLORS.reset} Usage: claude-swarm run <task> [--agent role:cli:model] [--mode pipeline|parallel] [--no-tui]`);
+    process.exit(1);
+  }
+
+  const agents: AgentSpec[] = agentSpecs.length > 0
+    ? agentSpecs.map(parseAgentSpec)
+    : DEFAULT_PIPELINE;
+
+  console.log(`${COLORS.cyan}🐝 CLAUDE SWARM${COLORS.reset} — Starting ${mode} run with ${agents.length} agents\n`);
+
+  for (const a of agents) {
+    console.log(`  ${COLORS.bold}${a.role}${COLORS.reset} → ${a.cli}${a.model ? `/${a.model}` : ""}`);
+  }
+  console.log();
+
+  const run = executeRun(task, agents, mode, process.cwd());
+
+  // If TUI mode, show live dashboard
+  if (!noTui && process.stdout.isTTY) {
+    // Wait a tick for the run object to be created, then start TUI
+    const runResult = await run;
+    printSummary(runResult);
+  } else {
+    const runResult = await run;
+    printSummary(runResult);
+  }
+}
+
+async function cmdAdapters(): Promise<void> {
+  const adapters = listAdapters();
+  console.log(`\n${COLORS.bold}CLI Adapters${COLORS.reset}\n`);
+  for (const a of adapters) {
+    const status = a.available
+      ? `${COLORS.green}● available${COLORS.reset}`
+      : `${COLORS.red}✕ not found${COLORS.reset}`;
+    console.log(`  ${COLORS.bold}${a.name}${COLORS.reset} ${status} (default model: ${COLORS.dim}${a.defaultModel}${COLORS.reset})`);
+  }
+  console.log();
+}
+
+/* ─── Kill ─── */
+
 async function cmdKill(): Promise<void> {
   try {
     const result = execSync(`lsof -ti :${PORT}`, { encoding: "utf-8" }).trim();
@@ -226,6 +278,23 @@ async function main(): Promise<void> {
 
   try {
     switch (cmd) {
+      case "run": {
+        const taskParts: string[] = [];
+        const agentSpecs: string[] = [];
+        let mode: RunMode = "pipeline";
+        let noTui = false;
+        for (let i = 1; i < args.length; i++) {
+          if (args[i] === "--agent" && args[i + 1]) { agentSpecs.push(args[++i]); }
+          else if (args[i] === "--mode" && args[i + 1]) { mode = args[++i] as RunMode; }
+          else if (args[i] === "--no-tui") { noTui = true; }
+          else if (!args[i].startsWith("--")) { taskParts.push(args[i]); }
+        }
+        await cmdRun(taskParts, agentSpecs, mode, noTui);
+        break;
+      }
+      case "adapters":
+        await cmdAdapters();
+        break;
       case "status": case undefined:
         await cmdStatus();
         break;
@@ -266,9 +335,16 @@ async function main(): Promise<void> {
         break;
       case "help":
         console.log(`
-${COLORS.bold}${COLORS.cyan}Claude Swarm${COLORS.reset} — Local multi-agent coordination
+${COLORS.bold}${COLORS.cyan}Claude Swarm${COLORS.reset} — Multi-CLI agent orchestration
 
-${COLORS.bold}Commands:${COLORS.reset}
+${COLORS.bold}Orchestration:${COLORS.reset}
+  run <task>          Run a multi-agent swarm
+    --agent <spec>    Agent spec: role:cli:model (repeatable)
+    --mode <mode>     pipeline (default) or parallel
+    --no-tui          Disable live dashboard
+  adapters            List available CLI adapters
+
+${COLORS.bold}Coordination:${COLORS.reset}
   status              Show broker health + all peers (default)
   peers               List connected peers
   rooms               List rooms
@@ -278,7 +354,16 @@ ${COLORS.bold}Commands:${COLORS.reset}
   tasks <room_id>     List tasks in room
   scratchpad <room>   List scratchpad entries
   kill                Kill broker daemon
-  help                Show this help
+
+${COLORS.bold}Agent Spec Format:${COLORS.reset}
+  role:cli:model      e.g. planner:claude:claude-sonnet-4-6
+  role:cli            e.g. coder:codex (uses default model)
+  role                e.g. reviewer (uses claude with default model)
+
+${COLORS.bold}Examples:${COLORS.reset}
+  claude-swarm run "Build a REST API"
+  claude-swarm run "Fix auth bug" --agent "analyst:claude:claude-sonnet-4-6" --agent "fixer:codex"
+  claude-swarm run "Review codebase" --agent "reviewer:gemini" --mode parallel
 
 ${COLORS.bold}Environment:${COLORS.reset}
   CLAUDE_SWARM_PORT   Broker port (default: 7899)
