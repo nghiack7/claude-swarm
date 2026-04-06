@@ -116,24 +116,52 @@ function runAgent(agent: RunningAgent, prompt: string, cwd: string): Promise<voi
     const child = adapter.spawn({ prompt, model, cwd });
     agent.process = child;
 
-    child.stdout?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
+    // Some CLIs (e.g. codex) write output to stderr in non-TTY mode.
+    // Capture both streams and merge into output, filtering noise.
+    const NOISE_PATTERNS = [
+      /^[\d-]+T[\d:.]+Z (ERROR|WARN) codex_core/,   // codex skill loading warnings
+      /^deprecated:/,                                  // codex deprecation notices
+      /^mcp:/,                                         // codex mcp messages
+      /^OpenAI Codex v/,                               // codex banner
+      /^-{4,}/,                                        // codex separator lines
+      /^(workdir|model|provider|approval|sandbox|reasoning|session id|reasoning effort|reasoning summaries):/,  // codex metadata
+      /^tokens used$/,                                 // codex token count label
+      /^\d[\d,]+$/,                                    // bare numbers (token counts)
+      /^user$/,                                        // codex role label
+      /^codex$/,                                       // codex role label
+      /^You are the [A-Z]+ in a multi-agent swarm/,   // echoed swarm prompt
+      /^Task: /,                                       // echoed task line
+      /^Context from previous agents:/,                // echoed context header
+      /^--- [A-Z]+ (output|---)/,                     // echoed agent output delimiters
+    ];
+
+    function isNoise(line: string): boolean {
+      return NOISE_PATTERNS.some((p) => p.test(line.trim()));
+    }
+
+    const addOutput = (text: string) => {
       agent.output += text;
-      // Keep last 50 lines for TUI display
-      const newLines = text.split("\n").filter((l) => l.length > 0);
+      const newLines = text.split("\n").filter((l) => l.length > 0 && !isNoise(l));
       agent.outputLines.push(...newLines);
       if (agent.outputLines.length > 50) {
         agent.outputLines = agent.outputLines.slice(-50);
       }
-    });
+    };
 
+    child.stdout?.on("data", (chunk: Buffer) => addOutput(chunk.toString()));
     child.stderr?.on("data", (chunk: Buffer) => {
       agent.error += chunk.toString();
+      addOutput(chunk.toString());
     });
 
     child.on("close", (code) => {
       agent.completedAt = Date.now();
-      agent.status = code === 0 ? "done" : "failed";
+      const hasOutput = agent.output.trim().length > 0;
+      // If we got output on stdout, treat as success even if exit code is non-zero
+      // (some CLIs like codex write metadata to stderr and may exit non-zero on warnings)
+      agent.status = (code === 0 || hasOutput) ? "done" : "failed";
+      // Clear error if agent succeeded (stderr was just metadata/warnings)
+      if (agent.status === "done") agent.error = "";
       agent.process = null;
       resolve();
     });

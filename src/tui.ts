@@ -185,12 +185,11 @@ export function printSummary(run: SwarmRun): void {
       : "—";
     console.log(`\n${badge} ${C.bold}${agent.spec.role}${C.reset} (${agent.spec.cli}/${agent.spec.model ?? "default"}) — ${duration}`);
 
-    if (agent.output) {
-      const lines = agent.output.split("\n").filter((l) => l.trim());
-      const preview = lines.slice(0, 5).map((l) => `  ${C.dim}${truncate(l, 76)}${C.reset}`).join("\n");
+    if (agent.outputLines.length > 0) {
+      const preview = agent.outputLines.slice(0, 5).map((l) => `  ${C.dim}${truncate(l, 76)}${C.reset}`).join("\n");
       console.log(preview);
-      if (lines.length > 5) {
-        console.log(`  ${C.dim}... ${lines.length - 5} more lines${C.reset}`);
+      if (agent.outputLines.length > 5) {
+        console.log(`  ${C.dim}... ${agent.outputLines.length - 5} more lines${C.reset}`);
       }
     }
 

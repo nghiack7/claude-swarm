@@ -2,6 +2,9 @@
 /**
  * CLI Adapters — spawn and manage different AI CLI tools.
  * Supports Claude Code, Codex CLI, and Gemini CLI.
+ *
+ * Prompts are passed as direct arguments via Node's spawn (no shell).
+ * Node handles arbitrary string lengths and special characters safely.
  */
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 
@@ -36,7 +39,7 @@ const claudeAdapter: CLIAdapter = {
   defaultModel: "claude-sonnet-4-6",
   available: () => commandExists("claude"),
   spawn: ({ prompt, model, cwd }) => {
-    const args = ["-p", prompt, "--output-format", "text"];
+    const args = ["-p", prompt, "--output-format", "text", "--dangerously-skip-permissions"];
     if (model) args.push("--model", model);
     return spawn("claude", args, {
       cwd,
@@ -53,8 +56,9 @@ const codexAdapter: CLIAdapter = {
   defaultModel: "o4-mini",
   available: () => commandExists("codex"),
   spawn: ({ prompt, model, cwd }) => {
-    const args = ["exec", prompt];
+    const args = ["exec", prompt, "-s", "danger-full-access", "--skip-git-repo-check"];
     if (model) args.push("--model", model);
+    if (cwd) args.push("-C", cwd);
     return spawn("codex", args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
