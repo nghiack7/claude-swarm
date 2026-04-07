@@ -4,6 +4,8 @@
 
 **Claude Swarm** orchestrates Claude Code, Codex CLI, and Gemini CLI from a single terminal. Spawn a swarm of agents with different roles and models, monitor them in real-time, and collect results — all locally.
 
+![Claude Swarm Demo](demo/demo.gif)
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  🐝 CLAUDE SWARM — "Build a REST API"                       │
